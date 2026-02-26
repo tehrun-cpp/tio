@@ -23,8 +23,8 @@ class registry;
 
 template <typename t>
 concept source = requires(t &s, const registry &r, token tok, interest intr) {
-  { s.mio_register(r, tok, intr) } -> std::same_as<void_result>;
-  { s.mio_reregister(r, tok, intr) } -> std::same_as<void_result>;
-  { s.mio_deregister(r) } -> std::same_as<void_result>;
+  { s.tio_register(r, tok, intr) } -> std::same_as<void_result>;
+  { s.tio_reregister(r, tok, intr) } -> std::same_as<void_result>;
+  { s.tio_deregister(r) } -> std::same_as<void_result>;
 };
 } // namespace tio

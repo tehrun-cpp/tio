@@ -87,7 +87,7 @@ TEST(tcp_test, write_and_read_roundtrip) {
 
   p.do_poll(evs, std::chrono::milliseconds{500}).value();
 
-  const char* msg = "hello mio";
+  const char* msg = "hello tio";
   auto data = std::as_bytes(std::span{msg, std::strlen(msg)});
   auto written = client.write(data).value();
   EXPECT_EQ(written, std::strlen(msg));
@@ -107,7 +107,7 @@ TEST(tcp_test, write_and_read_roundtrip) {
   EXPECT_EQ(n, std::strlen(msg));
 
   std::string received(reinterpret_cast<const char*>(buf.data()), n);
-  EXPECT_EQ(received, "hello mio");
+  EXPECT_EQ(received, "hello tio");
 }
 
 TEST(tcp_test, echo_roundtrip) {

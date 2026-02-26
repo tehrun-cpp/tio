@@ -248,9 +248,9 @@ int main() {
 Any type that implements three methods can register with a poll:
 
 ```cpp
-auto mio_register(const registry&, token, interest)   -> void_result;
-auto mio_reregister(const registry&, token, interest)  -> void_result;
-auto mio_deregister(const registry&)                   -> void_result;
+auto tio_register(const registry&, token, interest)   -> void_result;
+auto tio_reregister(const registry&, token, interest)  -> void_result;
+auto tio_deregister(const registry&)                   -> void_result;
 ```
 
 All built-in types (`tcp_listener`, `udp_socket`, `pipe_receiver`, `raw_fd`, ...) satisfy this concept.

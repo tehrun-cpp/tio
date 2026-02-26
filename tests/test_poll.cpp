@@ -49,15 +49,15 @@ class test_source {
 public:
   explicit test_source(int fd) noexcept : fd_{fd} {}
 
-  auto mio_register(const registry& reg, token tok, interest intr) -> void_result {
+  auto tio_register(const registry& reg, token tok, interest intr) -> void_result {
     return reg.register_fd(fd_, tok, intr);
   }
 
-  auto mio_reregister(const registry& reg, token tok, interest intr) -> void_result {
+  auto tio_reregister(const registry& reg, token tok, interest intr) -> void_result {
     return reg.reregister_fd(fd_, tok, intr);
   }
 
-  auto mio_deregister(const registry& reg) -> void_result { return reg.deregister_fd(fd_); }
+  auto tio_deregister(const registry& reg) -> void_result { return reg.deregister_fd(fd_); }
 
 private:
   int fd_;

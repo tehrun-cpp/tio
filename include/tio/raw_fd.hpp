@@ -25,15 +25,15 @@ public:
 
   [[nodiscard]] auto fd() const noexcept -> int { return fd_; }
 
-  [[nodiscard]] auto mio_register(const registry& reg, token tok, interest intr) -> void_result {
+  [[nodiscard]] auto tio_register(const registry& reg, token tok, interest intr) -> void_result {
     return reg.register_fd(fd_, tok, intr);
   }
 
-  [[nodiscard]] auto mio_reregister(const registry& reg, token tok, interest intr) -> void_result {
+  [[nodiscard]] auto tio_reregister(const registry& reg, token tok, interest intr) -> void_result {
     return reg.reregister_fd(fd_, tok, intr);
   }
 
-  [[nodiscard]] auto mio_deregister(const registry& reg) -> void_result {
+  [[nodiscard]] auto tio_deregister(const registry& reg) -> void_result {
     return reg.deregister_fd(fd_);
   }
 

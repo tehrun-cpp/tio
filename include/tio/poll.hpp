@@ -31,17 +31,17 @@ public:
 
   template <typename s_t> requires source<s_t>
   [[nodiscard]] auto register_source(s_t& s, token tok, interest interest) const -> void_result {
-    return s.mio_register(*this, tok, interest);
+    return s.tio_register(*this, tok, interest);
   }
 
   template <typename s_t> requires source<s_t>
   [[nodiscard]] auto reregister_source(s_t& s, token tok, interest interest) const -> void_result {
-    return s.mio_reregister(*this, tok, interest);
+    return s.tio_reregister(*this, tok, interest);
   }
 
   template <typename s_t> requires source<s_t>
   [[nodiscard]] auto deregister_source(s_t& s) const -> void_result {
-    return s.mio_deregister(*this);
+    return s.tio_deregister(*this);
   }
 
   [[nodiscard]] auto try_clone() const -> result<registry>;
