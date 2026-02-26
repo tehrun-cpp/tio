@@ -1,0 +1,14 @@
+build*/
+cmake-build-*/
+out/
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+*.o
+*.a
+*.so
+*.dylib
+Thumbs.db
+compile_commands.json
