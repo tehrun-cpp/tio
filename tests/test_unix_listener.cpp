@@ -11,6 +11,7 @@
 
 #include <array>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <string>
@@ -37,20 +38,44 @@ constexpr auto k_listener_token = token{0};
 constexpr auto k_client_token = token{1};
 constexpr auto k_server_token = token{2};
 
+auto temp_dir_template() -> std::string {
+  const char* base = std::getenv("TMPDIR");
+  std::string dir = (base != nullptr && *base != '\0') ? base : "/tmp";
+  if (dir.back() == '/') {
+    dir.pop_back();
+  }
+  return dir + "/tio_test_XXXXXX";
+}
+
+auto sock_file_creation_denied([[maybe_unused]] const std::string& path) -> bool {
+#if defined(__ANDROID__)
+  const auto probe = unix_listener::bind(unix_addr::from_pathname(path).value());
+  if (!probe.has_value() && probe.error().code() == EACCES) {
+    return true;
+  }
+  std::filesystem::remove(path);
+#endif
+  return false;
+}
+
 class unix_listener_test : public ::testing::Test {
 protected:
   void SetUp() override {
-    char tmpl[] = "/tmp/tio_test_XXXXXX";
-    ASSERT_NE(::mkdtemp(tmpl), nullptr);
+    auto tmpl = temp_dir_template();
+    ASSERT_NE(::mkdtemp(tmpl.data()), nullptr);
     dir_ = tmpl;
     path_ = dir_ + "/sock";
+
+    if (sock_file_creation_denied(path_)) {
+      GTEST_SKIP() << "sandbox denies socket-file creation under " << dir_;
+    }
   }
 
   void TearDown() override {
     std::filesystem::remove_all(dir_);
   }
 
-  auto addr() const -> unix_addr { return unix_addr::from_pathname(path_); }
+  auto addr() const -> unix_addr { return unix_addr::from_pathname(path_).value(); }
 
   std::string dir_;
   std::string path_;
@@ -250,4 +275,27 @@ TEST_F(unix_listener_test, take_error) {
   auto listener = unix_listener::bind(addr()).value();
   auto err = listener.take_error().value();
   EXPECT_EQ(err.code(), 0);
+}
+
+TEST(unix_addr_test, from_pathname_accepts_the_longest_path_that_fits) {
+  const std::string path(sizeof(sockaddr_un::sun_path) - 1, 'a');
+
+  auto addr = unix_addr::from_pathname(path);
+  ASSERT_TRUE(addr.has_value());
+  EXPECT_EQ(addr->as_pathname(), path);
+}
+
+TEST(unix_addr_test, from_pathname_rejects_a_path_that_does_not_fit) {
+  const std::string path(sizeof(sockaddr_un::sun_path), 'a');
+
+  auto addr = unix_addr::from_pathname(path);
+  ASSERT_FALSE(addr.has_value());
+  EXPECT_TRUE(addr.error().is_name_too_long());
+}
+
+TEST(unix_addr_test, from_pathname_round_trips_a_short_path) {
+  auto addr = unix_addr::from_pathname("/tmp/tio.sock");
+  ASSERT_TRUE(addr.has_value());
+  EXPECT_FALSE(addr->is_unnamed());
+  EXPECT_EQ(addr->as_pathname(), "/tmp/tio.sock");
 }

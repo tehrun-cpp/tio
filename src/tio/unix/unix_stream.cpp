@@ -12,12 +12,13 @@
 #include <sys/socket.h>
 #include <sys/uio.h>
 
+#include <tio/sys/detail/socket_ops.hpp>
 #include <tio/unix/unix_stream.hpp>
 
 namespace tio::unix_ {
 
 auto unix_stream::connect(const detail::unix_addr& addr) -> result<unix_stream> {
-  const int fd = ::socket(AF_UNIX, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
+  const int fd = detail::make_socket(AF_UNIX, SOCK_STREAM, 0);
   if (fd < 0) {
     return std::unexpected{error::last_os_error()};
   }
@@ -37,7 +38,7 @@ auto unix_stream::connect(const detail::unix_addr& addr) -> result<unix_stream> 
 
 auto unix_stream::pair() -> result<std::pair<unix_stream, unix_stream>> {
   int fds[2]{};
-  if (::socketpair(AF_UNIX, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0, fds) < 0) {
+  if (detail::make_socket_pair(AF_UNIX, SOCK_STREAM, 0, fds) < 0) {
     return std::unexpected{error::last_os_error()};
   }
   return std::pair{unix_stream{detail::fd_guard{fds[0]}}, unix_stream{detail::fd_guard{fds[1]}}};
@@ -52,7 +53,7 @@ auto unix_stream::read(std::span<std::byte> buf) const -> result<std::size_t> {
 }
 
 auto unix_stream::write(std::span<const std::byte> buf) const -> result<std::size_t> {
-  const ssize_t n = ::send(fd_.raw_fd(), buf.data(), buf.size(), MSG_NOSIGNAL);
+  const ssize_t n = ::send(fd_.raw_fd(), buf.data(), buf.size(), detail::k_send_flags);
   if (n < 0) {
     return std::unexpected{error::last_os_error()};
   }

@@ -9,23 +9,17 @@
  *
  */
 
-#include <tio/interest.hpp>
 #include <tio/waker.hpp>
 
 namespace tio {
 
 auto waker::create(registry reg, token tok) -> result<waker> {
-  auto ew = sys::unix::eventfd_waker::create();
-  if (!ew.has_value()) {
-    return std::unexpected{ew.error()};
+  auto w = sys::waker::create(*reg.sel_, tok);
+  if (!w.has_value()) {
+    return std::unexpected{w.error()};
   }
 
-  const auto r = reg.register_fd(ew->raw_fd(), tok, interest::readable());
-  if (!r.has_value()) {
-    return std::unexpected{r.error()};
-  }
-
-  auto p = std::make_shared<inner>(std::move(ew.value()));
+  auto p = std::make_shared<inner>(std::move(w.value()));
   return waker{std::move(p)};
 }
 

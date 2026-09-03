@@ -55,4 +55,36 @@ private:
   detail::fd_guard epoll_fd_;
 };
 
+struct epoll_event_traits {
+  using raw_event = epoll_selector::raw_event;
+
+  [[nodiscard]] static auto tok(const raw_event& ev) noexcept -> token {
+    return token{static_cast<std::size_t>(ev.data.u64)};
+  }
+
+  [[nodiscard]] static auto is_readable(const raw_event& ev) noexcept -> bool {
+    return (ev.events & EPOLLIN) != 0;
+  }
+
+  [[nodiscard]] static auto is_writable(const raw_event& ev) noexcept -> bool {
+    return (ev.events & EPOLLOUT) != 0;
+  }
+
+  [[nodiscard]] static auto is_error(const raw_event& ev) noexcept -> bool {
+    return (ev.events & EPOLLERR) != 0;
+  }
+
+  [[nodiscard]] static auto is_read_closed(const raw_event& ev) noexcept -> bool {
+    return (ev.events & (EPOLLHUP | EPOLLRDHUP)) != 0;
+  }
+
+  [[nodiscard]] static auto is_write_closed(const raw_event& ev) noexcept -> bool {
+    return (ev.events & (EPOLLHUP | EPOLLERR)) != 0;
+  }
+
+  [[nodiscard]] static auto is_priority(const raw_event& ev) noexcept -> bool {
+    return (ev.events & EPOLLPRI) != 0;
+  }
+};
+
 }

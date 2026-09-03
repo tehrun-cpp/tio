@@ -15,13 +15,14 @@
 #include <sys/uio.h>
 
 #include <tio/net/tcp_stream.hpp>
+#include <tio/sys/detail/socket_ops.hpp>
 
 #include <unistd.h>
 
 namespace tio::net {
 
 auto tcp_stream::connect(const detail::socket_addr& addr) -> result<tcp_stream> {
-  const int fd = ::socket(addr.family(), SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
+  const int fd = detail::make_socket(addr.family(), SOCK_STREAM, 0);
   if (fd < 0) {
     return std::unexpected{error::last_os_error()};
   }
@@ -48,7 +49,7 @@ auto tcp_stream::read(std::span<std::byte> buf) const -> result<std::size_t> {
 }
 
 auto tcp_stream::write(const std::span<const std::byte> buf) const -> result<std::size_t> {
-  const ssize_t n = send(fd_.raw_fd(), buf.data(), buf.size(), MSG_NOSIGNAL);
+  const ssize_t n = send(fd_.raw_fd(), buf.data(), buf.size(), detail::k_send_flags);
   if (n < 0) {
     return std::unexpected{error::last_os_error()};
   }

@@ -113,22 +113,20 @@ int main(int argc, char* argv[]) {
         }
       }
 
-      if (ev.is_writable() && !pending_write.empty()) {
-        while (!pending_write.empty()) {
-          auto write_result = stream.write(pending_write);
-          if (!write_result.has_value()) {
-            if (write_result.error().is_would_block()) {
-              break;
-            }
-            std::println("write error on {}: {}", ev.tok(), write_result.error());
-            p.get_registry().deregister_source(stream).value();
-            connections.erase(it);
-            goto next_event;
+      while (!pending_write.empty()) {
+        auto write_result = stream.write(pending_write);
+        if (!write_result.has_value()) {
+          if (write_result.error().is_would_block()) {
+            break;
           }
-
-          const auto n = write_result.value();
-          pending_write.erase(pending_write.begin(), pending_write.begin() + n);
+          std::println("write error on {}: {}", ev.tok(), write_result.error());
+          p.get_registry().deregister_source(stream).value();
+          connections.erase(it);
+          goto next_event;
         }
+
+        const auto n = write_result.value();
+        pending_write.erase(pending_write.begin(), pending_write.begin() + n);
       }
 
       if (ev.is_error() || ev.is_read_closed()) {

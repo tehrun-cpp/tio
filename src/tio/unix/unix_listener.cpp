@@ -11,13 +11,14 @@
 
 #include <sys/socket.h>
 
+#include <tio/sys/detail/socket_ops.hpp>
 #include <tio/unix/unix_listener.hpp>
 #include <tio/unix/unix_stream.hpp>
 
 namespace tio::unix_ {
 
 auto unix_listener::bind(const detail::unix_addr& addr) -> result<unix_listener> {
-  const int fd = ::socket(AF_UNIX, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
+  const int fd = detail::make_socket(AF_UNIX, SOCK_STREAM, 0);
   if (fd < 0) {
     return std::unexpected{error::last_os_error()};
   }
@@ -39,10 +40,7 @@ auto unix_listener::accept() const -> result<std::pair<unix_stream, detail::unix
   sockaddr_un storage{};
   socklen_t len = sizeof(storage);
 
-  const int fd = ::accept4(fd_.raw_fd(),
-                     reinterpret_cast<sockaddr*>(&storage),
-                     &len,
-                     SOCK_NONBLOCK | SOCK_CLOEXEC);
+  const int fd = detail::accept_socket(fd_.raw_fd(), reinterpret_cast<sockaddr*>(&storage), &len);
   if (fd < 0) {
     return std::unexpected{error::last_os_error()};
   }

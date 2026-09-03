@@ -9,6 +9,7 @@
  *
  */
 
+#include <fcntl.h>
 #include <sys/epoll.h>
 #include <unistd.h>
 #include <tio/sys/unix_/epoll_selector.hpp>
@@ -92,7 +93,7 @@ auto epoll_selector::deregister_fd(const int fd) const -> void_result {
 }
 
 auto epoll_selector::try_clone() const -> result<epoll_selector> {
-  const int new_fd = dup(epoll_fd_.raw_fd());
+  const int new_fd = ::fcntl(epoll_fd_.raw_fd(), F_DUPFD_CLOEXEC, 0);
   if (new_fd < 0) {
     return std::unexpected{error::last_os_error()};
   }

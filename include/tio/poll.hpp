@@ -48,6 +48,8 @@ public:
 
 private:
   friend class poll;
+  friend class waker;
+
   explicit registry(sys::selector* sel) noexcept : sel_{sel} {}
 
   sys::selector* sel_;

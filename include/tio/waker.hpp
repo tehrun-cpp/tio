@@ -15,7 +15,7 @@
 
 #include <tio/error.hpp>
 #include <tio/poll.hpp>
-#include <tio/sys/unix_/eventfd_waker.hpp>
+#include <tio/sys/waker.hpp>
 #include <tio/token.hpp>
 
 namespace tio {
@@ -30,9 +30,9 @@ public:
 
 private:
   struct inner {
-    sys::unix::eventfd_waker waker_;
+    sys::waker waker_;
 
-    explicit inner(sys::unix::eventfd_waker w) noexcept : waker_{std::move(w)} {}
+    explicit inner(sys::waker w) noexcept : waker_{std::move(w)} {}
   };
 
   explicit waker(std::shared_ptr<inner> p) noexcept : inner_{std::move(p)} {}

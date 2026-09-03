@@ -11,10 +11,12 @@
 
 #pragma once
 
+#include <tio/sys/selector.hpp>
+
 #if defined(TIO_BACKEND_EPOLL)
-  #include <tio/sys/unix_/epoll_selector.hpp>
+  #include <tio/sys/unix_/eventfd_waker.hpp>
 #elif defined(TIO_BACKEND_KQUEUE)
-  #include <tio/sys/unix_/kqueue_selector.hpp>
+  #include <tio/sys/unix_/kqueue_waker.hpp>
 #elif defined(TIO_BACKEND_IO_URING)
   #error "io_uring backend not yet implemented"
 #else
@@ -24,13 +26,9 @@
 namespace tio::sys {
 
 #if defined(TIO_BACKEND_EPOLL)
-using selector = unix::epoll_selector;
-using event_traits = unix::epoll_event_traits;
+using waker = unix::eventfd_waker;
 #elif defined(TIO_BACKEND_KQUEUE)
-using selector = unix::kqueue_selector;
-using event_traits = unix::kqueue_event_traits;
+using waker = unix::kqueue_waker;
 #endif
-
-using raw_event = selector::raw_event;
 
 }

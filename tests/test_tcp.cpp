@@ -11,6 +11,7 @@
 
 #include <array>
 #include <cstring>
+#include <vector>
 
 #include <sys/socket.h>
 #include <sys/uio.h>
@@ -40,6 +41,56 @@ auto bind_listener() -> std::pair<tcp_listener, socket_addr> {
   auto listener = tcp_listener::bind(addr).value();
   auto local = listener.local_addr().value();
   return {std::move(listener), local};
+}
+
+auto poll_until_readable(
+  poll& p,
+  events& evs,
+  std::initializer_list<token> toks,
+  std::chrono::milliseconds budget = std::chrono::milliseconds{500}
+) -> bool {
+  std::vector<token> pending{toks};
+  const auto deadline = std::chrono::steady_clock::now() + budget;
+
+  while (!pending.empty() && std::chrono::steady_clock::now() < deadline) {
+    if (!p.do_poll(evs, std::chrono::milliseconds{50}).has_value()) {
+      return false;
+    }
+    for (const auto& ev : evs) {
+      if (ev.is_readable()) {
+        std::erase(pending, ev.tok());
+      }
+    }
+  }
+
+  return pending.empty();
+}
+
+auto accept_n(
+  poll& p,
+  tcp_listener& listener,
+  std::size_t n,
+  std::chrono::milliseconds budget = std::chrono::milliseconds{2000}
+) -> std::vector<std::pair<tcp_stream, socket_addr>> {
+  std::vector<std::pair<tcp_stream, socket_addr>> accepted;
+  events evs{8};
+  const auto deadline = std::chrono::steady_clock::now() + budget;
+
+  while (accepted.size() < n && std::chrono::steady_clock::now() < deadline) {
+    auto conn = listener.accept();
+    if (conn.has_value()) {
+      accepted.push_back(std::move(conn.value()));
+      continue;
+    }
+    if (!conn.error().is_would_block()) {
+      return accepted;
+    }
+    if (!p.do_poll(evs, std::chrono::milliseconds{50}).has_value()) {
+      return accepted;
+    }
+  }
+
+  return accepted;
 }
 
 }
@@ -92,15 +143,7 @@ TEST(tcp_test, write_and_read_roundtrip) {
   auto written = client.write(data).value();
   EXPECT_EQ(written, std::strlen(msg));
 
-  p.do_poll(evs, std::chrono::milliseconds{500}).value();
-
-  bool server_readable = false;
-  for (const auto& ev : evs) {
-    if (ev.tok() == k_server_token && ev.is_readable()) {
-      server_readable = true;
-    }
-  }
-  EXPECT_TRUE(server_readable);
+  ASSERT_TRUE(poll_until_readable(p, evs, {k_server_token}));
 
   std::array<std::byte, 128> buf{};
   auto n = server.read(buf).value();
@@ -130,13 +173,13 @@ TEST(tcp_test, echo_roundtrip) {
   const char* msg = "echo test";
   client.write(std::as_bytes(std::span{msg, std::strlen(msg)})).value();
 
-  p.do_poll(evs, std::chrono::milliseconds{500}).value();
+  ASSERT_TRUE(poll_until_readable(p, evs, {k_server_token}));
   std::array<std::byte, 128> buf{};
   auto n = server.read(buf).value();
 
   server.write(std::span{buf.data(), n}).value();
 
-  p.do_poll(evs, std::chrono::milliseconds{500}).value();
+  ASSERT_TRUE(poll_until_readable(p, evs, {k_client_token}));
   std::array<std::byte, 128> buf2{};
   auto n2 = client.read(buf2).value();
 
@@ -164,7 +207,7 @@ TEST(tcp_test, peek) {
   const char* msg = "peek";
   client.write(std::as_bytes(std::span{msg, std::strlen(msg)})).value();
 
-  p.do_poll(evs, std::chrono::milliseconds{500}).value();
+  ASSERT_TRUE(poll_until_readable(p, evs, {k_server_token}));
 
   std::array<std::byte, 128> buf{};
   auto n1 = server.peek(buf).value();
@@ -284,7 +327,7 @@ TEST(tcp_test, bidirectional) {
   const char* msg1 = "ping";
   client.write(std::as_bytes(std::span{msg1, std::strlen(msg1)})).value();
 
-  p.do_poll(evs, std::chrono::milliseconds{500}).value();
+  ASSERT_TRUE(poll_until_readable(p, evs, {k_server_token}));
 
   std::array<std::byte, 128> buf{};
   auto n1 = server.read(buf).value();
@@ -293,7 +336,7 @@ TEST(tcp_test, bidirectional) {
   const char* msg2 = "pong";
   server.write(std::as_bytes(std::span{msg2, std::strlen(msg2)})).value();
 
-  p.do_poll(evs, std::chrono::milliseconds{500}).value();
+  ASSERT_TRUE(poll_until_readable(p, evs, {k_client_token}));
 
   auto n2 = client.read(buf).value();
   EXPECT_EQ(std::string(reinterpret_cast<const char*>(buf.data()), n2), "pong");
@@ -310,10 +353,11 @@ TEST(tcp_test, multiple_clients) {
   reg.register_source(listener, k_listener_token, interest::readable()).value();
 
   events evs{64};
-  p.do_poll(evs, std::chrono::milliseconds{500}).value();
 
-  auto [s1, peer1] = listener.accept().value();
-  auto [s2, peer2] = listener.accept().value();
+  auto accepted = accept_n(p, listener, 2);
+  ASSERT_EQ(accepted.size(), 2u);
+  auto& [s1, peer1] = accepted[0];
+  auto& [s2, peer2] = accepted[1];
 
   EXPECT_NE(peer1.port(), peer2.port());
 
@@ -327,8 +371,7 @@ TEST(tcp_test, multiple_clients) {
   const char* msg2 = "from c2";
   c2.write(std::as_bytes(std::span{msg2, std::strlen(msg2)})).value();
 
-  p.do_poll(evs, std::chrono::milliseconds{500}).value();
-  EXPECT_EQ(evs.size(), 2u);
+  ASSERT_TRUE(poll_until_readable(p, evs, {k_s1, k_s2}));
 
   std::array<std::byte, 128> buf{};
   auto n1 = s1.read(buf).value();

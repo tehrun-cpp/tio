@@ -13,12 +13,14 @@
 
 #include <tio/error.hpp>
 #include <tio/sys/detail/fd_guard.hpp>
+#include <tio/sys/unix_/epoll_selector.hpp>
+#include <tio/token.hpp>
 
 namespace tio::sys::unix {
 
 class eventfd_waker {
 public:
-  [[nodiscard]] static auto create() -> result<eventfd_waker>;
+  [[nodiscard]] static auto create(const epoll_selector& sel, token tok) -> result<eventfd_waker>;
 
   eventfd_waker(eventfd_waker&&) noexcept = default;
   auto operator=(eventfd_waker&&) noexcept -> eventfd_waker& = default;

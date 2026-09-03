@@ -12,11 +12,12 @@
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <tio/net/tcp_listener.hpp>
+#include <tio/sys/detail/socket_ops.hpp>
 
 namespace tio::net {
 
 auto tcp_listener::bind(const detail::socket_addr& addr) -> result<tcp_listener> {
-  const int fd = ::socket(addr.family(), SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
+  const int fd = detail::make_socket(addr.family(), SOCK_STREAM, 0);
   if (fd < 0) {
     return std::unexpected{error::last_os_error()};
   }
@@ -41,12 +42,7 @@ auto tcp_listener::accept() const -> result<std::pair<tcp_stream, detail::socket
   sockaddr_storage storage{};
   socklen_t len = sizeof(storage);
 
-  const int fd = ::accept4(
-    fd_.raw_fd(),
-    reinterpret_cast<sockaddr*>(&storage),
-    &len,
-    SOCK_NONBLOCK | SOCK_CLOEXEC
-  );
+  const int fd = detail::accept_socket(fd_.raw_fd(), reinterpret_cast<sockaddr*>(&storage), &len);
 
   if (fd < 0) {
     return std::unexpected{error::last_os_error()};

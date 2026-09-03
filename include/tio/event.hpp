@@ -23,23 +23,31 @@ class event {
 public:
   explicit event(const sys::raw_event& raw) noexcept : raw_{&raw} {}
 
-  [[nodiscard]] auto tok() const noexcept -> token { return token{raw_->data.u64}; }
+  [[nodiscard]] auto tok() const noexcept -> token { return sys::event_traits::tok(*raw_); }
 
-  [[nodiscard]] auto is_readable() const noexcept -> bool { return (raw_->events & EPOLLIN) != 0; }
+  [[nodiscard]] auto is_readable() const noexcept -> bool {
+    return sys::event_traits::is_readable(*raw_);
+  }
 
-  [[nodiscard]] auto is_writable() const noexcept -> bool { return (raw_->events & EPOLLOUT) != 0; }
+  [[nodiscard]] auto is_writable() const noexcept -> bool {
+    return sys::event_traits::is_writable(*raw_);
+  }
 
-  [[nodiscard]] auto is_error() const noexcept -> bool { return (raw_->events & EPOLLERR) != 0; }
+  [[nodiscard]] auto is_error() const noexcept -> bool {
+    return sys::event_traits::is_error(*raw_);
+  }
 
   [[nodiscard]] auto is_read_closed() const noexcept -> bool {
-    return (raw_->events & (EPOLLHUP | EPOLLRDHUP)) != 0;
+    return sys::event_traits::is_read_closed(*raw_);
   }
 
   [[nodiscard]] auto is_write_closed() const noexcept -> bool {
-    return (raw_->events & (EPOLLHUP | EPOLLERR)) != 0;
+    return sys::event_traits::is_write_closed(*raw_);
   }
 
-  [[nodiscard]] auto is_priority() const noexcept -> bool { return (raw_->events & EPOLLPRI) != 0; }
+  [[nodiscard]] auto is_priority() const noexcept -> bool {
+    return sys::event_traits::is_priority(*raw_);
+  }
 
   [[nodiscard]] auto raw() const noexcept -> const sys::raw_event& { return *raw_; }
 

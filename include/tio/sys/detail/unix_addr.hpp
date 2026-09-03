@@ -12,12 +12,16 @@
 #pragma once
 
 #include <algorithm>
+#include <cerrno>
+#include <cstddef>
 #include <cstring>
 #include <string>
 #include <string_view>
 
 #include <sys/socket.h>
 #include <sys/un.h>
+
+#include <tio/error.hpp>
 
 namespace tio::detail {
 
@@ -27,14 +31,18 @@ public:
     storage_.sun_family = AF_UNIX;
   }
 
-  static auto from_pathname(std::string_view path) noexcept -> unix_addr {
+  [[nodiscard]] static auto from_pathname(std::string_view path) noexcept -> result<unix_addr> {
+    if (path.size() >= sizeof(sockaddr_un::sun_path)) {
+      return std::unexpected{error{ENAMETOOLONG}};
+    }
+
     unix_addr addr;
     addr.storage_.sun_family = AF_UNIX;
-    const auto max_path = sizeof(addr.storage_.sun_path) - 1;
-    const auto copy_len = std::min(path.size(), max_path);
-    std::memcpy(addr.storage_.sun_path, path.data(), copy_len);
-    addr.storage_.sun_path[copy_len] = '\0';
-    addr.len_ = static_cast<socklen_t>(offsetof(sockaddr_un, sun_path) + copy_len + 1);
+    if (!path.empty()) {
+      std::memcpy(addr.storage_.sun_path, path.data(), path.size());
+    }
+    addr.storage_.sun_path[path.size()] = '\0';
+    addr.len_ = static_cast<socklen_t>(offsetof(sockaddr_un, sun_path) + path.size() + 1);
     return addr;
   }
 
@@ -67,7 +75,7 @@ public:
     if (is_unnamed()) {
       return {};
     }
-    const auto path_len = len_ - static_cast<socklen_t>(offsetof(sockaddr_un, sun_path));
+    const std::size_t path_len = static_cast<std::size_t>(len_) - offsetof(sockaddr_un, sun_path);
     if (path_len > 0 && storage_.sun_path[path_len - 1] == '\0') {
       return {storage_.sun_path, path_len - 1};
     }

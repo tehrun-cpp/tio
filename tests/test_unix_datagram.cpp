@@ -10,6 +10,7 @@
  */
 
 #include <array>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <string>
@@ -31,22 +32,46 @@ namespace {
 constexpr auto k_a_token = token{1};
 constexpr auto k_b_token = token{2};
 
+auto temp_dir_template() -> std::string {
+  const char* base = std::getenv("TMPDIR");
+  std::string dir = (base != nullptr && *base != '\0') ? base : "/tmp";
+  if (dir.back() == '/') {
+    dir.pop_back();
+  }
+  return dir + "/tio_test_XXXXXX";
+}
+
+auto sock_file_creation_denied([[maybe_unused]] const std::string& path) -> bool {
+#if defined(__ANDROID__)
+  const auto probe = unix_datagram::bind(unix_addr::from_pathname(path).value());
+  if (!probe.has_value() && probe.error().code() == EACCES) {
+    return true;
+  }
+  std::filesystem::remove(path);
+#endif
+  return false;
+}
+
 class unix_datagram_test : public ::testing::Test {
 protected:
   void SetUp() override {
-    char tmpl[] = "/tmp/tio_test_XXXXXX";
-    ASSERT_NE(::mkdtemp(tmpl), nullptr);
+    auto tmpl = temp_dir_template();
+    ASSERT_NE(::mkdtemp(tmpl.data()), nullptr);
     dir_ = tmpl;
     path_a_ = dir_ + "/a.sock";
     path_b_ = dir_ + "/b.sock";
+
+    if (sock_file_creation_denied(path_a_)) {
+      GTEST_SKIP() << "sandbox denies socket-file creation under " << dir_;
+    }
   }
 
   void TearDown() override {
     std::filesystem::remove_all(dir_);
   }
 
-  auto addr_a() const -> unix_addr { return unix_addr::from_pathname(path_a_); }
-  auto addr_b() const -> unix_addr { return unix_addr::from_pathname(path_b_); }
+  auto addr_a() const -> unix_addr { return unix_addr::from_pathname(path_a_).value(); }
+  auto addr_b() const -> unix_addr { return unix_addr::from_pathname(path_b_).value(); }
 
   std::string dir_;
   std::string path_a_;

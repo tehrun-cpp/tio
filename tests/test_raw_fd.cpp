@@ -11,7 +11,11 @@
 
 #include <cstdint>
 
-#include <sys/timerfd.h>
+#if defined(TIO_BACKEND_EPOLL)
+  #include <sys/timerfd.h>
+#elif defined(TIO_BACKEND_KQUEUE)
+  #include <sys/event.h>
+#endif
 
 #include <tio/raw_fd.hpp>
 
@@ -125,6 +129,8 @@ TEST(raw_fd_test, deregister_stops_events) {
   EXPECT_EQ(evs.size(), 0u);
 }
 
+#if defined(TIO_BACKEND_EPOLL)
+
 TEST(raw_fd_test, timerfd_integration) {
   auto p = poll::create().value();
 
@@ -151,6 +157,42 @@ TEST(raw_fd_test, timerfd_integration) {
 
   ::close(tfd);
 }
+
+#elif defined(TIO_BACKEND_KQUEUE)
+
+TEST(raw_fd_test, nested_kqueue_integration) {
+  auto p = poll::create().value();
+  pipe_fds inner_pipe;
+
+  const int kq = ::kqueue();
+  ASSERT_GE(kq, 0);
+
+  struct kevent change{};
+  EV_SET(&change, inner_pipe.read_end, EVFILT_READ, EV_ADD | EV_CLEAR, 0, 0, nullptr);
+  const timespec zero{};
+  ASSERT_EQ(::kevent(kq, &change, 1, nullptr, 0, &zero), 0);
+
+  raw_fd src{kq};
+  auto reg = p.get_registry();
+  reg.register_source(src, token{100}, interest::readable()).value();
+
+  char buf[] = "x";
+  ::write(inner_pipe.write_end, buf, 1);
+
+  events evs{64};
+  p.do_poll(evs, std::chrono::milliseconds{500}).value();
+  EXPECT_EQ(evs.size(), 1u);
+  EXPECT_EQ(evs[0].tok(), token{100});
+  EXPECT_TRUE(evs[0].is_readable());
+
+  struct kevent inner{};
+  EXPECT_EQ(::kevent(kq, nullptr, 0, &inner, 1, &zero), 1);
+  EXPECT_EQ(static_cast<int>(inner.ident), inner_pipe.read_end);
+
+  ::close(kq);
+}
+
+#endif
 
 TEST(raw_fd_test, multiple_raw_fds) {
   auto p = poll::create().value();

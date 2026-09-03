@@ -57,6 +57,10 @@ TEST(error_test, is_in_progress) {
   EXPECT_TRUE(error{EINPROGRESS}.is_in_progress());
 }
 
+TEST(error_test, is_name_too_long) {
+  EXPECT_TRUE(error{ENAMETOOLONG}.is_name_too_long());
+}
+
 TEST(error_test, equality) {
   EXPECT_EQ(error{EAGAIN}, error{EAGAIN});
   EXPECT_NE(error{EAGAIN}, error{EINTR});

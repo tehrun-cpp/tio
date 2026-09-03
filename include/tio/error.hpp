@@ -67,6 +67,10 @@ public:
     return code_ == EINPROGRESS;
   }
 
+  [[nodiscard]] constexpr auto is_name_too_long() const noexcept -> bool {
+    return code_ == ENAMETOOLONG;
+  }
+
   constexpr auto operator<=>(const error&) const noexcept = default;
 
 private:

@@ -23,74 +23,122 @@ using tio::sys::raw_event;
 
 namespace {
 
-auto make_raw(std::uint64_t tok, std::uint32_t flags) -> raw_event {
+#if defined(TIO_BACKEND_EPOLL)
+
+auto raw_with(std::uint64_t tok, std::uint32_t flags) -> raw_event {
   raw_event ev{};
   ev.data.u64 = tok;
   ev.events = flags;
   return ev;
 }
 
+auto raw_token_only(std::uint64_t tok) -> raw_event { return raw_with(tok, 0); }
+auto raw_readable(std::uint64_t tok) -> raw_event { return raw_with(tok, EPOLLIN); }
+auto raw_writable(std::uint64_t tok) -> raw_event { return raw_with(tok, EPOLLOUT); }
+auto raw_error(std::uint64_t tok) -> raw_event { return raw_with(tok, EPOLLERR); }
+auto raw_read_closed(std::uint64_t tok) -> raw_event { return raw_with(tok, EPOLLRDHUP); }
+auto raw_write_closed(std::uint64_t tok) -> raw_event { return raw_with(tok, EPOLLHUP); }
+auto raw_priority(std::uint64_t tok) -> raw_event { return raw_with(tok, EPOLLPRI); }
+
+#elif defined(TIO_BACKEND_KQUEUE)
+
+auto raw_with(std::uint64_t tok, std::int16_t filter, std::uint16_t flags, std::uint32_t fflags)
+    -> raw_event {
+  raw_event ev{};
+  EV_SET(
+    &ev,
+    0,
+    filter,
+    flags,
+    fflags,
+    0,
+    reinterpret_cast<void*>(static_cast<std::uintptr_t>(tok))
+  );
+  return ev;
+}
+
+auto raw_token_only(std::uint64_t tok) -> raw_event { return raw_with(tok, EVFILT_READ, 0, 0); }
+auto raw_readable(std::uint64_t tok) -> raw_event { return raw_with(tok, EVFILT_READ, 0, 0); }
+auto raw_writable(std::uint64_t tok) -> raw_event { return raw_with(tok, EVFILT_WRITE, 0, 0); }
+auto raw_error(std::uint64_t tok) -> raw_event { return raw_with(tok, EVFILT_READ, EV_ERROR, 0); }
+
+auto raw_read_closed(std::uint64_t tok) -> raw_event {
+  return raw_with(tok, EVFILT_READ, EV_EOF, 0);
+}
+
+auto raw_write_closed(std::uint64_t tok) -> raw_event {
+  return raw_with(tok, EVFILT_WRITE, EV_EOF, 0);
+}
+
+auto raw_priority(std::uint64_t tok) -> raw_event {
+  return raw_with(tok, EVFILT_EXCEPT, 0, NOTE_OOB);
+}
+
+#endif
+
 }
 
 TEST(event_test, token) {
-  auto raw = make_raw(42, 0);
+  auto raw = raw_token_only(42);
   event ev{raw};
   EXPECT_EQ(ev.tok(), token{42});
 }
 
 TEST(event_test, is_readable) {
-  auto raw = make_raw(1, EPOLLIN);
+  auto raw = raw_readable(1);
   event ev{raw};
   EXPECT_TRUE(ev.is_readable());
   EXPECT_FALSE(ev.is_writable());
 }
 
 TEST(event_test, is_writable) {
-  auto raw = make_raw(1, EPOLLOUT);
+  auto raw = raw_writable(1);
   event ev{raw};
   EXPECT_TRUE(ev.is_writable());
   EXPECT_FALSE(ev.is_readable());
 }
 
 TEST(event_test, is_error) {
-  auto raw = make_raw(1, EPOLLERR);
+  auto raw = raw_error(1);
   event ev{raw};
   EXPECT_TRUE(ev.is_error());
 }
 
-TEST(event_test, is_read_closed_hup) {
-  auto raw = make_raw(1, EPOLLHUP);
+TEST(event_test, is_read_closed) {
+  auto raw = raw_read_closed(1);
   event ev{raw};
   EXPECT_TRUE(ev.is_read_closed());
 }
 
-TEST(event_test, is_read_closed_rdhup) {
-  auto raw = make_raw(1, EPOLLRDHUP);
-  event ev{raw};
-  EXPECT_TRUE(ev.is_read_closed());
-}
-
-TEST(event_test, is_write_closed_hup) {
-  auto raw = make_raw(1, EPOLLHUP);
-  event ev{raw};
-  EXPECT_TRUE(ev.is_write_closed());
-}
-
-TEST(event_test, is_write_closed_err) {
-  auto raw = make_raw(1, EPOLLERR);
+TEST(event_test, is_write_closed) {
+  auto raw = raw_write_closed(1);
   event ev{raw};
   EXPECT_TRUE(ev.is_write_closed());
 }
 
 TEST(event_test, is_priority) {
-  auto raw = make_raw(1, EPOLLPRI);
+  auto raw = raw_priority(1);
   event ev{raw};
   EXPECT_TRUE(ev.is_priority());
   EXPECT_FALSE(ev.is_readable());
 }
 
+#if defined(TIO_BACKEND_EPOLL)
+
+TEST(event_test, is_read_closed_hup) {
+  auto raw = raw_with(1, EPOLLHUP);
+  event ev{raw};
+  EXPECT_TRUE(ev.is_read_closed());
+}
+
+TEST(event_test, is_write_closed_err) {
+  auto raw = raw_with(1, EPOLLERR);
+  event ev{raw};
+  EXPECT_TRUE(ev.is_write_closed());
+}
+
 TEST(event_test, combined_flags) {
-  auto raw = make_raw(1, EPOLLIN | EPOLLOUT);
+  auto raw = raw_with(1, EPOLLIN | EPOLLOUT);
   event ev{raw};
   EXPECT_TRUE(ev.is_readable());
   EXPECT_TRUE(ev.is_writable());
@@ -98,11 +146,22 @@ TEST(event_test, combined_flags) {
 }
 
 TEST(event_test, raw_access) {
-  auto raw = make_raw(7, EPOLLIN);
+  auto raw = raw_with(7, EPOLLIN);
   event ev{raw};
   EXPECT_EQ(ev.raw().data.u64, 7u);
   EXPECT_EQ(ev.raw().events, EPOLLIN);
 }
+
+#elif defined(TIO_BACKEND_KQUEUE)
+
+TEST(event_test, raw_access) {
+  auto raw = raw_readable(7);
+  event ev{raw};
+  EXPECT_EQ(reinterpret_cast<std::uintptr_t>(ev.raw().udata), 7u);
+  EXPECT_EQ(ev.raw().filter, EVFILT_READ);
+}
+
+#endif
 
 TEST(events_test, initial_state) {
   events evs{128};
@@ -114,8 +173,8 @@ TEST(events_test, initial_state) {
 TEST(events_test, set_len_and_access) {
   events evs{8};
 
-  evs.raw_buf()[0] = make_raw(10, EPOLLIN);
-  evs.raw_buf()[1] = make_raw(20, EPOLLOUT);
+  evs.raw_buf()[0] = raw_readable(10);
+  evs.raw_buf()[1] = raw_writable(20);
   evs.set_len(2);
 
   EXPECT_EQ(evs.size(), 2u);
@@ -128,7 +187,7 @@ TEST(events_test, set_len_and_access) {
 
 TEST(events_test, clear) {
   events evs{8};
-  evs.raw_buf()[0] = make_raw(1, EPOLLIN);
+  evs.raw_buf()[0] = raw_readable(1);
   evs.set_len(1);
 
   evs.clear();
@@ -138,9 +197,9 @@ TEST(events_test, clear) {
 
 TEST(events_test, range_for_iteration) {
   events evs{8};
-  evs.raw_buf()[0] = make_raw(1, EPOLLIN);
-  evs.raw_buf()[1] = make_raw(2, EPOLLOUT);
-  evs.raw_buf()[2] = make_raw(3, EPOLLIN | EPOLLOUT);
+  evs.raw_buf()[0] = raw_readable(1);
+  evs.raw_buf()[1] = raw_writable(2);
+  evs.raw_buf()[2] = raw_readable(3);
   evs.set_len(3);
 
   std::vector<std::size_t> tokens;
@@ -166,9 +225,9 @@ TEST(events_test, begin_equals_end_when_empty) {
 
 TEST(events_test, std_algorithm_compatible) {
   events evs{8};
-  evs.raw_buf()[0] = make_raw(5, EPOLLIN);
-  evs.raw_buf()[1] = make_raw(10, EPOLLOUT);
-  evs.raw_buf()[2] = make_raw(15, EPOLLIN);
+  evs.raw_buf()[0] = raw_readable(5);
+  evs.raw_buf()[1] = raw_writable(10);
+  evs.raw_buf()[2] = raw_readable(15);
   evs.set_len(3);
 
   auto count =

@@ -13,6 +13,7 @@
 
 #include <sys/eventfd.h>
 
+#include <tio/interest.hpp>
 #include <tio/sys/unix_/eventfd_waker.hpp>
 
 #include <unistd.h>
@@ -21,12 +22,20 @@ namespace tio::sys::unix {
 
 eventfd_waker::eventfd_waker(detail::fd_guard fd) noexcept : fd_{std::move(fd)} {}
 
-auto eventfd_waker::create() -> result<eventfd_waker> {
+auto eventfd_waker::create(const epoll_selector& sel, const token tok) -> result<eventfd_waker> {
   int const fd = ::eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK);
   if (fd < 0) {
     return std::unexpected{error::last_os_error()};
   }
-  return eventfd_waker{detail::fd_guard{fd}};
+
+  eventfd_waker w{detail::fd_guard{fd}};
+
+  const auto r = sel.register_fd(fd, tok, interest::readable());
+  if (!r.has_value()) {
+    return std::unexpected{r.error()};
+  }
+
+  return w;
 }
 
 auto eventfd_waker::wake() const noexcept -> void_result {

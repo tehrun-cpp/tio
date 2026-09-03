@@ -12,6 +12,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 
+#include <tio/sys/detail/socket_ops.hpp>
 #include <tio/unix/pipe.hpp>
 
 namespace tio::unix_ {
@@ -58,7 +59,7 @@ auto pipe_receiver::set_nonblocking(bool enable) const -> void_result {
 
 auto make_pipe() -> result<std::pair<pipe_sender, pipe_receiver>> {
   int fds[2]{};
-  if (::pipe2(fds, O_NONBLOCK | O_CLOEXEC) < 0) {
+  if (detail::make_pipe_fds(fds) < 0) {
     return std::unexpected{error::last_os_error()};
   }
   return std::pair{pipe_sender{detail::fd_guard{fds[1]}}, pipe_receiver{detail::fd_guard{fds[0]}}};

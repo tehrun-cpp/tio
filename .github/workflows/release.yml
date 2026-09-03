@@ -1,0 +1,194 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version to build, without the leading v
+        required: true
+
+permissions:
+  contents: write
+
+env:
+  TIO_VERSION: ${{ github.event.inputs.version || github.ref_name }}
+
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo apt-key add -
+          echo "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-19 main" | sudo tee /etc/apt/sources.list.d/llvm.list
+          sudo apt-get update
+          sudo apt-get install -y clang-19 libc++-19-dev libc++abi-19-dev
+
+      - name: Build and install
+        run: |
+          VERSION="${TIO_VERSION#v}"
+          cmake -B build \
+            -DCMAKE_CXX_COMPILER=clang++-19 \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DTIO_BUILD_TESTS=OFF \
+            -DTIO_BUILD_EXAMPLES=OFF \
+            -DCMAKE_INSTALL_PREFIX="$PWD/stage/tio-$VERSION-linux-x86_64"
+          cmake --build build --parallel $(nproc)
+          cmake --install build
+          cp LICENSE README.md "stage/tio-$VERSION-linux-x86_64/"
+          tar -C stage -czf "tio-$VERSION-linux-x86_64.tar.gz" "tio-$VERSION-linux-x86_64"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: tio-*-linux-x86_64.tar.gz
+
+  macos:
+    runs-on: macos-15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build and install
+        run: |
+          VERSION="${TIO_VERSION#v}"
+          cmake -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=13.3 \
+            -DTIO_BUILD_TESTS=OFF \
+            -DTIO_BUILD_EXAMPLES=OFF \
+            -DCMAKE_INSTALL_PREFIX="$PWD/stage/tio-$VERSION-macos-universal"
+          cmake --build build --parallel $(sysctl -n hw.ncpu)
+          cmake --install build
+          cp LICENSE README.md "stage/tio-$VERSION-macos-universal/"
+          tar -C stage -czf "tio-$VERSION-macos-universal.tar.gz" "tio-$VERSION-macos-universal"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: tio-*-macos-universal.tar.gz
+
+  apple-xcframework:
+    runs-on: macos-15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the macOS slice
+        run: |
+          cmake -B build-macos \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=13.3 \
+            -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" \
+            -DTIO_BUILD_TESTS=OFF \
+            -DTIO_BUILD_EXAMPLES=OFF \
+            -DCMAKE_INSTALL_PREFIX="$PWD/slice-macos"
+          cmake --build build-macos --parallel $(sysctl -n hw.ncpu)
+          cmake --install build-macos
+
+      - name: Build the iOS device slice
+        run: |
+          cmake -B build-ios \
+            -DCMAKE_SYSTEM_NAME=iOS \
+            -DCMAKE_OSX_SYSROOT=iphoneos \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=16.3 \
+            -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DTIO_BUILD_TESTS=OFF \
+            -DTIO_BUILD_EXAMPLES=OFF \
+            -DCMAKE_INSTALL_PREFIX="$PWD/slice-ios"
+          cmake --build build-ios --parallel $(sysctl -n hw.ncpu)
+          cmake --install build-ios
+
+      - name: Build the iOS simulator slice
+        run: |
+          cmake -B build-iossim \
+            -DCMAKE_SYSTEM_NAME=iOS \
+            -DCMAKE_OSX_SYSROOT=iphonesimulator \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=16.3 \
+            -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DTIO_BUILD_TESTS=OFF \
+            -DTIO_BUILD_EXAMPLES=OFF \
+            -DCMAKE_INSTALL_PREFIX="$PWD/slice-iossim"
+          cmake --build build-iossim --parallel $(sysctl -n hw.ncpu)
+          cmake --install build-iossim
+
+      - name: Create the XCFramework
+        run: |
+          VERSION="${TIO_VERSION#v}"
+          xcodebuild -create-xcframework \
+            -library slice-macos/lib/libtio.a -headers slice-macos/include \
+            -library slice-ios/lib/libtio.a -headers slice-ios/include \
+            -library slice-iossim/lib/libtio.a -headers slice-iossim/include \
+            -output tio.xcframework
+          zip -qry "tio-$VERSION-apple-xcframework.zip" tio.xcframework LICENSE README.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: apple-xcframework
+          path: tio-*-apple-xcframework.zip
+
+  android:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: nttld/setup-ndk@v1
+        id: setup-ndk
+        with:
+          ndk-version: r30
+
+      - name: Build every ABI
+        run: |
+          VERSION="${TIO_VERSION#v}"
+          PREFIX="$PWD/stage/tio-$VERSION-android"
+          for abi in arm64-v8a armeabi-v7a x86_64 x86; do
+            cmake -B "build-$abi" \
+              -DCMAKE_TOOLCHAIN_FILE="${{ steps.setup-ndk.outputs.ndk-path }}/build/cmake/android.toolchain.cmake" \
+              -DANDROID_ABI="$abi" \
+              -DANDROID_PLATFORM=android-21 \
+              -DCMAKE_BUILD_TYPE=Release \
+              -DTIO_BUILD_TESTS=OFF \
+              -DTIO_BUILD_EXAMPLES=OFF \
+              -DCMAKE_INSTALL_PREFIX="$PREFIX" \
+              -DCMAKE_INSTALL_LIBDIR="lib/$abi"
+            cmake --build "build-$abi" --parallel $(nproc)
+            cmake --install "build-$abi"
+          done
+          cp LICENSE README.md "$PREFIX/"
+          tar -C stage -czf "tio-$VERSION-android.tar.gz" "tio-$VERSION-android"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android
+          path: tio-*-android.tar.gz
+
+  release:
+    needs: [linux, macos, apple-xcframework, android]
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="${TIO_VERSION#v}"
+          ls -lh artifacts
+          gh release create "v$VERSION" \
+            --repo "${{ github.repository }}" \
+            --title "v$VERSION" \
+            --generate-notes \
+            artifacts/*

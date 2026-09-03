@@ -7,7 +7,7 @@ on:
     branches: [main]
 
 jobs:
-  build:
+  linux:
     runs-on: ubuntu-24.04
 
     strategy:
@@ -38,3 +38,185 @@ jobs:
 
       - name: Test
         run: ctest --test-dir build --output-on-failure
+
+  macos:
+    runs-on: macos-15
+
+    strategy:
+      matrix:
+        build_type: [Release, Debug]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: brew install googletest
+
+      - name: Configure
+        run: |
+          cmake -B build \
+            -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} \
+            -DCMAKE_PREFIX_PATH="$(brew --prefix)" \
+            -DTIO_BUILD_TESTS=ON \
+            -DTIO_BUILD_EXAMPLES=ON
+
+      - name: Build
+        run: cmake --build build --parallel $(sysctl -n hw.ncpu)
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
+  apple-deployment-floors:
+    runs-on: macos-15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build for iOS 16.3
+        run: |
+          cmake -B build-ios \
+            -DCMAKE_SYSTEM_NAME=iOS \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=16.3 \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DTIO_BUILD_TESTS=OFF \
+            -DTIO_BUILD_EXAMPLES=OFF
+          cmake --build build-ios --parallel $(sysctl -n hw.ncpu)
+
+      - name: Build for macOS 13.3
+        run: |
+          cmake -B build-macos-floor \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=13.3 \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DTIO_BUILD_TESTS=OFF \
+            -DTIO_BUILD_EXAMPLES=ON
+          cmake --build build-macos-floor --parallel $(sysctl -n hw.ncpu)
+
+  android:
+    runs-on: ubuntu-24.04
+
+    strategy:
+      matrix:
+        abi: [arm64-v8a, armeabi-v7a, x86_64]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: nttld/setup-ndk@v1
+        id: setup-ndk
+        with:
+          ndk-version: r30
+
+      - name: Build
+        run: |
+          cmake -B build-android \
+            -DCMAKE_TOOLCHAIN_FILE="${{ steps.setup-ndk.outputs.ndk-path }}/build/cmake/android.toolchain.cmake" \
+            -DANDROID_ABI=${{ matrix.abi }} \
+            -DANDROID_PLATFORM=android-21 \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DTIO_BUILD_TESTS=OFF \
+            -DTIO_BUILD_EXAMPLES=OFF
+          cmake --build build-android --parallel $(nproc)
+
+  android-emulator:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: nttld/setup-ndk@v1
+        id: setup-ndk
+        with:
+          ndk-version: r30
+
+      - name: Build Google Test for Android
+        run: |
+          curl -sL https://github.com/google/googletest/archive/refs/tags/v1.17.0.tar.gz | tar xz
+          cmake -B gt-build -S googletest-1.17.0 \
+            -DCMAKE_TOOLCHAIN_FILE="${{ steps.setup-ndk.outputs.ndk-path }}/build/cmake/android.toolchain.cmake" \
+            -DANDROID_ABI=x86_64 \
+            -DANDROID_PLATFORM=android-24 \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX="$PWD/gt-install"
+          cmake --build gt-build --parallel $(nproc)
+          cmake --install gt-build
+
+      - name: Build tests
+        run: |
+          cmake -B build-android \
+            -DCMAKE_TOOLCHAIN_FILE="${{ steps.setup-ndk.outputs.ndk-path }}/build/cmake/android.toolchain.cmake" \
+            -DANDROID_ABI=x86_64 \
+            -DANDROID_PLATFORM=android-24 \
+            -DCMAKE_FIND_ROOT_PATH="$PWD/gt-install" \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DTIO_BUILD_TESTS=ON \
+            -DTIO_BUILD_EXAMPLES=ON
+          cmake --build build-android --parallel $(nproc)
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          target: default
+          script: |
+            NDK="${{ steps.setup-ndk.outputs.ndk-path }}"
+            adb shell rm -rf /data/local/tmp/tio
+            adb shell mkdir -p /data/local/tmp/tio
+            adb push "$NDK/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/x86_64-linux-android/libc++_shared.so" /data/local/tmp/tio/
+            for t in build-android/tests/test_*; do
+              [ -f "$t" ] && [ -x "$t" ] && adb push "$t" /data/local/tmp/tio/
+            done
+            adb shell 'cd /data/local/tmp/tio && \
+              export LD_LIBRARY_PATH=/data/local/tmp/tio TMPDIR=/data/local/tmp/tio && \
+              fail=0; for t in test_*; do chmod +x $t; ./$t || fail=1; done; exit $fail'
+
+  ios-simulator:
+    runs-on: macos-15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Google Test for the simulator
+        run: |
+          curl -sL https://github.com/google/googletest/archive/refs/tags/v1.17.0.tar.gz | tar xz
+          cmake -B gt-build -S googletest-1.17.0 \
+            -DCMAKE_SYSTEM_NAME=iOS \
+            -DCMAKE_OSX_SYSROOT=iphonesimulator \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=16.3 \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX="$PWD/gt-install"
+          cmake --build gt-build --parallel $(sysctl -n hw.ncpu)
+          cmake --install gt-build
+
+      - name: Build tests
+        run: |
+          cmake -B build-iossim \
+            -DCMAKE_SYSTEM_NAME=iOS \
+            -DCMAKE_OSX_SYSROOT=iphonesimulator \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=16.3 \
+            -DCMAKE_FIND_ROOT_PATH="$PWD/gt-install" \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DTIO_BUILD_TESTS=ON \
+            -DTIO_BUILD_EXAMPLES=OFF
+          cmake --build build-iossim --parallel $(sysctl -n hw.ncpu)
+
+      - name: Run tests on a booted simulator
+        run: |
+          UDID=$(xcrun simctl list devices available \
+            | grep -oE '\(([0-9A-F]{8}-[0-9A-F-]{27})\)' | head -1 | tr -d '()')
+          test -n "$UDID" || { echo "no simulator available"; exit 1; }
+          xcrun simctl boot "$UDID" || true
+          xcrun simctl bootstatus "$UDID" -b
+          status=0
+          for app in build-iossim/tests/*.app; do
+            name=$(basename "$app" .app)
+            echo "==> $name"
+            SIMCTL_CHILD_TMPDIR=/private/tmp xcrun simctl spawn "$UDID" "$app/$name" || status=1
+          done
+          exit $status

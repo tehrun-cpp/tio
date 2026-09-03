@@ -13,11 +13,19 @@
 #include <sys/socket.h>
 
 #include <tio/net/udp_socket.hpp>
+#include <tio/sys/detail/socket_ops.hpp>
+
+#if !defined(IPV6_ADD_MEMBERSHIP) && defined(IPV6_JOIN_GROUP)
+  #define IPV6_ADD_MEMBERSHIP IPV6_JOIN_GROUP
+#endif
+#if !defined(IPV6_DROP_MEMBERSHIP) && defined(IPV6_LEAVE_GROUP)
+  #define IPV6_DROP_MEMBERSHIP IPV6_LEAVE_GROUP
+#endif
 
 namespace tio::net {
 
 auto udp_socket::bind(const detail::socket_addr& addr) -> result<udp_socket> {
-  const int fd = ::socket(addr.family(), SOCK_DGRAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
+  const int fd = detail::make_socket(addr.family(), SOCK_DGRAM, 0);
   if (fd < 0) {
     return std::unexpected{error::last_os_error()};
   }
@@ -34,7 +42,8 @@ auto udp_socket::bind(const detail::socket_addr& addr) -> result<udp_socket> {
 auto udp_socket::send_to(std::span<const std::byte> buf, const detail::socket_addr& addr) const
     -> result<std::size_t> {
   const ssize_t n =
-      ::sendto(fd_.raw_fd(), buf.data(), buf.size(), MSG_NOSIGNAL, addr.as_sockaddr(), addr.len());
+      ::sendto(fd_.raw_fd(), buf.data(), buf.size(), detail::k_send_flags, addr.as_sockaddr(),
+               addr.len());
   if (n < 0) {
     return std::unexpected{error::last_os_error()};
   }
@@ -71,7 +80,7 @@ auto udp_socket::connect(const detail::socket_addr& addr) const -> void_result {
 }
 
 auto udp_socket::send(const std::span<const std::byte> buf) const -> result<std::size_t> {
-  const ssize_t n = ::send(fd_.raw_fd(), buf.data(), buf.size(), MSG_NOSIGNAL);
+  const ssize_t n = ::send(fd_.raw_fd(), buf.data(), buf.size(), detail::k_send_flags);
   if (n < 0) {
     return std::unexpected{error::last_os_error()};
   }
