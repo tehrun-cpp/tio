@@ -104,7 +104,7 @@ jobs:
       - uses: nttld/setup-ndk@v1
         id: setup-ndk
         with:
-          ndk-version: r30
+          ndk-version: r29
 
       - name: Build
         run: |
@@ -126,7 +126,7 @@ jobs:
       - uses: nttld/setup-ndk@v1
         id: setup-ndk
         with:
-          ndk-version: r30
+          ndk-version: r29
 
       - name: Build Google Test for Android
         run: |
@@ -147,10 +147,12 @@ jobs:
             -DANDROID_ABI=x86_64 \
             -DANDROID_PLATFORM=android-24 \
             -DCMAKE_FIND_ROOT_PATH="$PWD/gt-install" \
-            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_BUILD_TYPE=Release \
             -DTIO_BUILD_TESTS=ON \
             -DTIO_BUILD_EXAMPLES=ON
           cmake --build build-android --parallel $(nproc)
+          cp "${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/x86_64-linux-android/libc++_shared.so" \
+            build-android/tests/
 
       - name: Enable KVM
         run: |
@@ -165,16 +167,10 @@ jobs:
           arch: x86_64
           target: default
           script: |
-            NDK="${{ steps.setup-ndk.outputs.ndk-path }}"
             adb shell rm -rf /data/local/tmp/tio
             adb shell mkdir -p /data/local/tmp/tio
-            adb push "$NDK/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/x86_64-linux-android/libc++_shared.so" /data/local/tmp/tio/
-            for t in build-android/tests/test_*; do
-              [ -f "$t" ] && [ -x "$t" ] && adb push "$t" /data/local/tmp/tio/
-            done
-            adb shell 'cd /data/local/tmp/tio && \
-              export LD_LIBRARY_PATH=/data/local/tmp/tio TMPDIR=/data/local/tmp/tio && \
-              fail=0; for t in test_*; do chmod +x $t; ./$t || fail=1; done; exit $fail'
+            for t in build-android/tests/libc++_shared.so build-android/tests/test_*; do if [ -f "$t" ]; then adb push "$t" /data/local/tmp/tio/; fi; done
+            adb shell 'cd /data/local/tmp/tio && export LD_LIBRARY_PATH=/data/local/tmp/tio TMPDIR=/data/local/tmp/tio && fail=0; for t in test_*; do chmod +x $t; ./$t || fail=1; done; exit $fail'
 
   ios-simulator:
     runs-on: macos-15
@@ -201,7 +197,7 @@ jobs:
             -DCMAKE_OSX_SYSROOT=iphonesimulator \
             -DCMAKE_OSX_DEPLOYMENT_TARGET=16.3 \
             -DCMAKE_FIND_ROOT_PATH="$PWD/gt-install" \
-            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_BUILD_TYPE=Release \
             -DTIO_BUILD_TESTS=ON \
             -DTIO_BUILD_EXAMPLES=OFF
           cmake --build build-iossim --parallel $(sysctl -n hw.ncpu)

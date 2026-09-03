@@ -27,15 +27,15 @@ tio.
 - Linux or Android API 21+ (epoll backend), or macOS 13.3+ / iOS 16.3+ / tvOS 16.4+ /
   watchOS 9.4+ / visionOS (kqueue backend)
 - C++26 (`-std=c++2c`)
-- Clang 19+ (primary) or GCC 14+ (secondary); Android needs NDK 30+
+- Clang 19+ (primary) or GCC 14+ (secondary); Android needs NDK r29+
 - CMake 3.30+
 
 The Apple deployment-target floors come from libc++, not from tio: `std::format` needs
 `std::to_chars` for floating point, which is unavailable in earlier system libraries.
 
-The Android NDK floor is libc++ too: the NDK 28 copy rejects every user-defined
+The Android NDK floor is libc++ too: the NDK r28 copy rejects every user-defined
 `std::formatter` specialization, so tio's formatters for `error`, `token`, `interest` and the
-address types do not compile there. The library itself builds on NDK 28; only formatting a tio
+address types do not compile there. The library itself builds on r28; only formatting a tio
 type does not.
 
 ## Build

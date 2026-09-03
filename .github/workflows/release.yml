@@ -144,12 +144,13 @@ jobs:
       - uses: nttld/setup-ndk@v1
         id: setup-ndk
         with:
-          ndk-version: r30
+          ndk-version: r29
 
       - name: Build every ABI
         run: |
           VERSION="${TIO_VERSION#v}"
           PREFIX="$PWD/stage/tio-$VERSION-android"
+          STRIP="${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip"
           for abi in arm64-v8a armeabi-v7a x86_64 x86; do
             cmake -B "build-$abi" \
               -DCMAKE_TOOLCHAIN_FILE="${{ steps.setup-ndk.outputs.ndk-path }}/build/cmake/android.toolchain.cmake" \
@@ -162,7 +163,9 @@ jobs:
               -DCMAKE_INSTALL_LIBDIR="lib/$abi"
             cmake --build "build-$abi" --parallel $(nproc)
             cmake --install "build-$abi"
+            "$STRIP" --strip-debug "$PREFIX/lib/$abi/libtio.a"
           done
+          ls -l "$PREFIX"/lib/*/libtio.a
           cp LICENSE README.md "$PREFIX/"
           tar -C stage -czf "tio-$VERSION-android.tar.gz" "tio-$VERSION-android"
 
@@ -187,8 +190,15 @@ jobs:
         run: |
           VERSION="${TIO_VERSION#v}"
           ls -lh artifacts
-          gh release create "v$VERSION" \
-            --repo "${{ github.repository }}" \
-            --title "v$VERSION" \
-            --generate-notes \
-            artifacts/*
+          if gh release view "v$VERSION" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            gh release upload "v$VERSION" \
+              --repo "${{ github.repository }}" \
+              --clobber \
+              artifacts/*
+          else
+            gh release create "v$VERSION" \
+              --repo "${{ github.repository }}" \
+              --title "v$VERSION" \
+              --generate-notes \
+              artifacts/*
+          fi
